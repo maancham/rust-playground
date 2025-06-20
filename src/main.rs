@@ -23,6 +23,18 @@ fn handle_client(mut stream: TcpStream) {
 
     let response = match parts[1] {
         "/" => "HTTP/1.1 200 OK\r\n\r\n",
+        path if path.starts_with("/echo/") => {
+            if let Some(post_path) = path.strip_prefix("/echo/") {
+                &format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                    post_path.len(),
+                    post_path
+                )
+            }
+            else {
+               "HTTP/1.1 404 Not Found\r\n\r\n" 
+            }
+        },
         _ => "HTTP/1.1 404 Not Found\r\n\r\n",
     };
 
