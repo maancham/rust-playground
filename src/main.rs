@@ -1,19 +1,31 @@
+use std::fs;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(long, default_value = "/tmp/")]
+    directory: String,
+}
 
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
+    println!("Using directory: {}", args.directory);
+
     let listener = TcpListener::bind("127.0.0.1:4221").await.unwrap();
 
     loop {
         let (stream, _) = listener.accept().await.unwrap();
+        let file_directory = args.directory.clone();
         tokio::spawn(async move {
-            handle_connection(stream).await
+            handle_connection(stream, file_directory).await
         });
     }
 }
 
-async fn handle_connection(mut stream: TcpStream) {
+async fn handle_connection(mut stream: TcpStream, file_directory: String) {
     let mut buf = [0; 1024];
     let read_bufsize = stream.read(&mut buf).await.unwrap();
 
@@ -52,6 +64,19 @@ async fn handle_connection(mut stream: TcpStream) {
                 agent.len(),
                 agent
             )
+        }
+        path if path.starts_with("/files/") => {
+            let file_path = format!("{}/{}", file_directory, path.strip_prefix("/files/").unwrap());
+
+            if let Ok(file_content) = fs::read_to_string(file_path) {
+                &format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}",
+                    file_content.len(),
+                    file_content
+                )
+            } else {
+                "HTTP/1.1 404 Not Found\r\n\r\n"
+            }
         }
         _ => "HTTP/1.1 404 Not Found\r\n\r\n",
     };
