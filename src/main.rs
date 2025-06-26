@@ -1,18 +1,21 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-fn main() {
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+#[tokio::main]
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:4221").await.unwrap();
 
-    for stream_result in listener.incoming() {
-        let stream = stream_result.unwrap();
-        handle_connection(stream);
+    loop {
+        let (stream, _) = listener.accept().await.unwrap();
+        tokio::spawn(async move {
+            handle_connection(stream).await
+        });
     }
 }
 
-fn handle_connection(mut stream: TcpStream) {
+async fn handle_connection(mut stream: TcpStream) {
     let mut buf = [0; 1024];
-    let read_bufsize = stream.read(&mut buf).expect("failed to read from client");
+    let read_bufsize = stream.read(&mut buf).await.unwrap();
 
     let request = String::from_utf8_lossy(&buf[0..read_bufsize]);
     let lines: Vec<&str> = request.lines().collect();
@@ -55,5 +58,5 @@ fn handle_connection(mut stream: TcpStream) {
 
     stream
         .write_all(response.as_bytes())
-        .expect("failed to write to client");
+        .await.unwrap();
 }
