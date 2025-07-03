@@ -1,1 +1,1 @@
-Small projects covering various asepect of Rust
+Small projects covering various aspects of Rust
