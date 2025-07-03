@@ -39,31 +39,39 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
 
             let content_length = find_header(&req.headers, "content-length");
             let user_agent = find_header(&req.headers, "user-agent");
+            let accepted_encoding = find_header(&req.headers, "accept-encoding");
+
+            let mut content_encoding = None;
+            if let Some(encoding) = accepted_encoding {
+                if encoding == "gzip" {
+                    content_encoding = accepted_encoding;
+                }
+            }
 
 
             let response = match (method, path) {
-                ("GET", "/") => &format_response(200, "", ""),
+                ("GET", "/") => &format_response(200, "", "", content_encoding),
                 ("GET", "/user-agent") => {
                     if let Some(agent) = user_agent {
-                        &format_response(200, "text/plain", agent)
+                        &format_response(200, "text/plain", agent, content_encoding)
                     }
                     else {
-                        &format_response(404, "", "")
+                        &format_response(404, "", "", content_encoding)
                     }
                 }
                 ("GET", path) if path.starts_with("/echo/") => {
                     if let Some(post_path) = path.strip_prefix("/echo/") {
-                        &format_response(200, "text/plain", post_path)
+                        &format_response(200, "text/plain", post_path, content_encoding)
                     } else {
-                        &format_response(404, "", "")
+                        &format_response(404, "", "", content_encoding)
                     }
                 }
                 ("GET", path) if path.starts_with("/files/") => {
                     let file_path = format!("{}/{}", file_directory, path.strip_prefix("/files/").unwrap());
                     if let Ok(file_content) = fs::read_to_string(file_path) {
-                        &format_response(200, "application/octet-stream", &file_content)
+                        &format_response(200, "application/octet-stream", &file_content, content_encoding)
                     } else {
-                        &format_response(404, "", "")
+                        &format_response(404, "", "", content_encoding)
                     }
                 }
                 ("POST", path) if path.starts_with("/files/") => {
@@ -84,9 +92,9 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
                     }
 
                     fs::write(file_path, body).unwrap();
-                    &format_response(201, "", "")
+                    &format_response(201, "", "", content_encoding)
                 }
-                _ =>  &format_response(404, "", ""),
+                _ =>  &format_response(404, "", "", content_encoding),
             };
 
             stream
@@ -103,15 +111,22 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
     }
 }
 
-fn format_response(status: u16, content_type: &str, body: &str) -> String {
-    format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+fn format_response(status: u16, content_type: &str, body: &str, content_encoding: Option<&str>) -> String {
+    let mut response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n",
         status,
         status_text(status),
         content_type,
         body.len(),
-        body
-    )
+    );
+
+    if let Some(encoding) = content_encoding {
+        response += &format!("Content-Encoding: {}\r\n", encoding);
+    }
+
+    response += &format!("\r\n{}", body);
+
+    response
 }
 
 fn status_text(status: u16) -> &'static str {
