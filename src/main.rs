@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Error, ErrorKind, Write};
 use std::collections::HashMap;
 
 use tokio::net::{TcpListener, TcpStream};
@@ -26,12 +26,15 @@ async fn main() {
         let (stream, _) = listener.accept().await.unwrap();
         let file_directory = args.directory.clone();
         tokio::spawn(async move {
-            handle_connection(stream, file_directory).await
+            if let Err(_) = handle_connection(stream, file_directory).await {
+                println!("client closed connection");
+                return;
+            }
         });
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, file_directory: String) {
+async fn handle_connection(mut stream: TcpStream, file_directory: String) -> Result<(), std::io::Error> {
     loop {
         let mut buf = [0; 1024];
         let read_bufsize = stream.read(&mut buf).await.unwrap();
@@ -49,6 +52,10 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
                 let body = read_body(&mut stream, &buf[headers_end..read_bufsize], request_info.content_length).await;
                 let response = route_request(method, path, &request_info, &body, &file_directory).await;
                 stream.write_all(&response).await.unwrap();
+
+                if request_info.close_connection {
+                    return Err(Error::new(ErrorKind::Other, "client requested close connection"));
+                }
             }
             Ok(httparse::Status::Partial) => {
                 println!("received partial request");
@@ -60,6 +67,8 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
             }
         }
     }
+
+    Ok(())
 }
 
 
@@ -68,6 +77,7 @@ struct RequestInfo {
     content_length: Option<usize>,
     user_agent: Option<String>,
     accepts_gzip: bool,
+    close_connection: bool,
 }
 
 impl RequestInfo {
@@ -96,10 +106,16 @@ impl RequestInfo {
             })
             .unwrap_or(false);
 
+        let close_connection = header_map
+            .get("connection")
+            .map(|v| v.to_lowercase() == "close")
+            .unwrap_or(false);
+
         Self {
             content_length,
             user_agent,
             accepts_gzip,
+            close_connection,
         }
     }
 }
@@ -146,6 +162,11 @@ impl HttpResponse {
         self
     }
 
+    fn add_header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_string(), value.to_string()));
+        self
+    }
+
     fn to_bytes(self) -> Vec<u8> {
         let mut response = format!(
             "HTTP/1.1 {} {}\r\n",
@@ -175,7 +196,7 @@ async fn route_request(
     body: &[u8],
     file_directory: &str,
 ) -> Vec<u8> {
-    let response = match (method, path) {
+    let mut response = match (method, path) {
         ("GET", "/") => {
             HttpResponse::new(200)
         }
@@ -230,6 +251,10 @@ async fn route_request(
         }
         _ => HttpResponse::new(404)
     };
+
+    if request_info.close_connection {
+        response = response.add_header("Connection", "close");
+    }
 
     response.to_bytes()
 }
