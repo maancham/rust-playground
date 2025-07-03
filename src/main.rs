@@ -32,28 +32,32 @@ async fn main() {
 }
 
 async fn handle_connection(mut stream: TcpStream, file_directory: String) {
-    let mut buf = [0; 1024];
-    let read_bufsize = stream.read(&mut buf).await.unwrap();
+    loop {
+        let mut buf = [0; 1024];
+        let read_bufsize = stream.read(&mut buf).await.unwrap();
 
-    let mut headers = [httparse::EMPTY_HEADER; 64];
-    let mut req = httparse::Request::new(&mut headers);
-    let request_result = req.parse(&buf[0..read_bufsize]);
+        let mut headers = [httparse::EMPTY_HEADER; 64];
+        let mut req = httparse::Request::new(&mut headers);
+        let request_result = req.parse(&buf[0..read_bufsize]);
 
-    match request_result {
-        Ok(httparse::Status::Complete(headers_end)) => {
-            let method = req.method.unwrap();
-            let path = req.path.unwrap();
+        match request_result {
+            Ok(httparse::Status::Complete(headers_end)) => {
+                let method = req.method.unwrap();
+                let path = req.path.unwrap();
 
-            let request_info = RequestInfo::from_headers(&req.headers);
-            let body = read_body(&mut stream, &buf[headers_end..read_bufsize], request_info.content_length).await;
-            let response = route_request(method, path, &request_info, &body, &file_directory).await;
-            stream.write_all(&response).await.unwrap();
-        }
-        Ok(httparse::Status::Partial) => {
-            println!("received partial request");
-        },
-        Err(e) => {
-            println!("failed to parse request: {:?}", e);
+                let request_info = RequestInfo::from_headers(&req.headers);
+                let body = read_body(&mut stream, &buf[headers_end..read_bufsize], request_info.content_length).await;
+                let response = route_request(method, path, &request_info, &body, &file_directory).await;
+                stream.write_all(&response).await.unwrap();
+            }
+            Ok(httparse::Status::Partial) => {
+                println!("received partial request");
+                break;
+            },
+            Err(e) => {
+                println!("failed to parse request: {:?}", e);
+                break;
+            }
         }
     }
 }
