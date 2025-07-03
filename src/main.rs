@@ -39,15 +39,15 @@ async fn handle_connection(mut stream: TcpStream, file_directory: String) {
 
             let content_length = find_header(&req.headers, "content-length");
             let user_agent = find_header(&req.headers, "user-agent");
-            let accepted_encoding = find_header(&req.headers, "accept-encoding");
+            let accepted_encodings = find_header(&req.headers, "accept-encoding");
 
             let mut content_encoding = None;
-            if let Some(encoding) = accepted_encoding {
-                if encoding == "gzip" {
-                    content_encoding = accepted_encoding;
+            if let Some(encodings) = accepted_encodings {
+                let gzip_present = encodings.split(",").map(|e| e.trim()).any(|e| e == "gzip");
+                if gzip_present {
+                    content_encoding = Some("gzip");
                 }
             }
-
 
             let response = match (method, path) {
                 ("GET", "/") => &format_response(200, "", "", content_encoding),
